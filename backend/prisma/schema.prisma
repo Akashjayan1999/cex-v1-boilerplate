@@ -14,19 +14,85 @@ datasource db {
 
 
 model User {
-  id              String   @id   @default(uuid())
-  username        String   @unique
-  password        String
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  buyOrders  Order[] @relation("BuyOrders")
+  sellOrders Order[] @relation("SellOrders")
+
+  @@map("users")
+}
+
+model Stock {
+  id     String @id @default(uuid())
+  title  String
+  symbol String @unique
+
+  orders Order[]
+  fills  Fill[]
+
+  @@map("stocks")
 }
 
 model Order {
-  id            String    @id    @default(uuid())
-  name          String
-  symbol        String    @unique
+  id        String      @id @default(uuid())
+  buyerId   String      @map("buyer_id")
+  sellerId  String?     @map("seller_id")
+  side      Side
+  type      OrderType
+  stockId   String      @map("stock_id")
+  price     Decimal?
+  qty       Int
+  filledQty Int         @default(0) @map("filled_qty")
+  status    OrderStatus @default(OPEN)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  buyer     User   @relation("BuyOrders",  fields: [buyerId],  references: [id])
+  seller    User?  @relation("SellOrders", fields: [sellerId], references: [id])
+  stock     Stock  @relation(fields: [stockId], references: [id])
+  buyFills  Fill[] @relation("BuyOrderFills")
+  sellFills Fill[] @relation("SellOrderFills")
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([stockId, status])
+  @@map("orders")
 }
 
 model Fill {
-  
+  id          String   @id @default(uuid())
+  stockId     String   @map("stock_id")
+  price       Decimal
+  qty         Int
+  buyOrderId  String   @map("buy_order_id")
+  sellOrderId String   @map("sell_order_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  stock     Stock @relation(fields: [stockId],    references: [id])
+  buyOrder  Order @relation("BuyOrderFills",  fields: [buyOrderId],  references: [id])
+  sellOrder Order @relation("SellOrderFills", fields: [sellOrderId], references: [id])
+
+  @@index([stockId])
+  @@index([buyOrderId])
+  @@index([sellOrderId])
+  @@map("fills")
 }
 
-model Stock {}
+enum Side {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+}
+
+enum OrderStatus {
+  OPEN
+  PARTIAL
+  FILLED
+  CANCELLED
+}
