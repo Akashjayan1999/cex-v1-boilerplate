@@ -1,61 +1,32 @@
-import express from "express";
-
-const app = express();
-
-const BALANCES = {
-
+import "dotenv/config";
+import { app } from "./src/app.js";
+import { bootstrapOrderBook, bootstrapBalances } from "./src/lib/boostrap.js";
+import { prisma } from "./src/lib/prisma.js";
+ 
+const PORT = Number(process.env.PORT ?? 3000);
+ 
+async function main(): Promise<void> {
+  // Verify DB connection
+  await prisma.$connect();
+  console.log("[db] Connected to PostgreSQL");
+ 
+  // Rebuild in-memory state from persistent DB
+  await bootstrapBalances();
+  await bootstrapOrderBook();
+ 
+  app.listen(PORT, () => {
+    console.log(`[server] CEX backend running on http://localhost:${PORT}`);
+  });
 }
-
-const ORDERBOOKS = {
-    SOL: {},
-    BTC: {}
-}
-
-app.post("/signup", (req, res) => {
-
-})
-
-app.post("/signin", (req, res) => {
-
-})
-
-/*
-    body = {
-        type:           "market" | "limit",
-        price:          number | null,
-        qty:            number,
-        market_id:      string,
-        side:           "buy" | "sell"
-    }
-
-    @returns {
-        orderId: string,
-        filledQty: number,
-        averagePrice
-    }
-*/
-
-// 50.01
-
-// 500001
-app.post("/order", (req, res) => {
-
-})
-/*
-    returns the status of an order (partially filled, success, cancellled)
-    ALSO RETURNS THE INDIVIDUAL FILLS OF THIS ORDER 
-*/
-app.get("/order/:orderId")
-app.delete("/order/:orderId")
-app.get("/depth/:symbol");
-app.get("/orders");
-app.get("/fills");
-
-app.get("/balance/usd");
-
-/*  
-    Returns the balance of all stocks
-*/
-app.get("/balance")
-
-app.listen(3000);
+ 
+main().catch((err) => {
+  console.error("[fatal]", err);
+  process.exit(1);
+});
+ 
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+ 

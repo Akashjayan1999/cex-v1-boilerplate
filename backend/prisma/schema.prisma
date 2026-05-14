@@ -13,64 +13,80 @@ datasource db {
 }
 
 
+// ─────────────────────────────────────────────
+//  Users & balances
+//  Balance breakdown lives in memory (BALANCES map).
+//  We persist a snapshot here only for audit / recovery.
+// ─────────────────────────────────────────────
 model User {
   id           String   @id @default(uuid())
   username     String   @unique
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  buyOrders  Order[] @relation("BuyOrders")
-  sellOrders Order[] @relation("SellOrders")
+  orders Order[]
 
   @@map("users")
 }
 
+// ─────────────────────────────────────────────
+//  Stocks (instruments)
+// ─────────────────────────────────────────────
 model Stock {
   id     String @id @default(uuid())
   title  String
   symbol String @unique
 
-  orders Order[]
-  fills  Fill[]
+  orders    Order[]
+  fills     Fill[]
+  lastTrade LastTrade?
 
   @@map("stocks")
 }
 
+// ─────────────────────────────────────────────
+//  Orders
+//  Bids / asks are NOT stored here at query time —
+//  they are rebuilt from the in-memory ORDERBOOK.
+//  This table is the persistent ledger.
+// ─────────────────────────────────────────────
 model Order {
   id        String      @id @default(uuid())
-  buyerId   String      @map("buyer_id")
-  sellerId  String?     @map("seller_id")
+  userId    String      @map("user_id")
   side      Side
   type      OrderType
   stockId   String      @map("stock_id")
-  price     Decimal?
+  price     Decimal?    @db.Decimal(18, 8) // null for MARKET orders
   qty       Int
   filledQty Int         @default(0) @map("filled_qty")
   status    OrderStatus @default(OPEN)
   createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt       @map("updated_at")
 
-  buyer     User   @relation("BuyOrders",  fields: [buyerId],  references: [id])
-  seller    User?  @relation("SellOrders", fields: [sellerId], references: [id])
-  stock     Stock  @relation(fields: [stockId], references: [id])
+  user      User   @relation(fields: [userId],   references: [id])
+  stock     Stock  @relation(fields: [stockId],  references: [id])
   buyFills  Fill[] @relation("BuyOrderFills")
   sellFills Fill[] @relation("SellOrderFills")
 
-  @@index([buyerId])
-  @@index([sellerId])
+  @@index([userId])
   @@index([stockId, status])
+  @@index([stockId, side, status, price]) // used by order-book recovery
   @@map("orders")
 }
 
+// ─────────────────────────────────────────────
+//  Fills — immutable trade records
+// ─────────────────────────────────────────────
 model Fill {
   id          String   @id @default(uuid())
   stockId     String   @map("stock_id")
-  price       Decimal
+  price       Decimal  @db.Decimal(18, 8)
   qty         Int
   buyOrderId  String   @map("buy_order_id")
   sellOrderId String   @map("sell_order_id")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  stock     Stock @relation(fields: [stockId],    references: [id])
+  stock     Stock @relation(fields: [stockId],     references: [id])
   buyOrder  Order @relation("BuyOrderFills",  fields: [buyOrderId],  references: [id])
   sellOrder Order @relation("SellOrderFills", fields: [sellOrderId], references: [id])
 
@@ -80,6 +96,25 @@ model Fill {
   @@map("fills")
 }
 
+// ─────────────────────────────────────────────
+//  LastTrade — one row per stock, upserted on every fill.
+//  This answers "last price at which the stock was traded"
+//  without scanning the fills table.
+// ─────────────────────────────────────────────
+model LastTrade {
+  stockId   String   @id @map("stock_id")
+  price     Decimal  @db.Decimal(18, 8)
+  qty       Int
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@map("last_trades")
+}
+
+// ─────────────────────────────────────────────
+//  Enums
+// ─────────────────────────────────────────────
 enum Side {
   BUY
   SELL
